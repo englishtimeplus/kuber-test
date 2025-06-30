@@ -1,50 +1,37 @@
 #!/bin/bash
 
-echo "Next.js MicroK8s 배포 시작..."
+# Configuration
+APP_NAME="nextjs-app"
+IMAGE_NAME="nextjs-app"
+TAG="latest"
+REGISTRY="localhost:32000" # MicroK8s default registry port
+NAMESPACE="default"
 
-# 기존 배포 정리
-echo "기존 배포 정리 중..."
-microk8s kubectl delete deployment nextjs-app --ignore-not-found=true
-microk8s kubectl delete service nextjs-service --ignore-not-found=true
+# Build Docker image
+echo "Building Docker image..."
+docker build -t ${IMAGE_NAME}:${TAG} .
 
-# 완전히 삭제될 때까지 대기
-echo "리소스 정리 대기 중..."
-sleep 10
+# Push to MicroK8s registry
+echo "Pushing to MicroK8s registry..."
+docker tag ${IMAGE_NAME}:${TAG} ${REGISTRY}/${IMAGE_NAME}:${TAG}
+docker push ${REGISTRY}/${IMAGE_NAME}:${TAG}
 
-# Docker 이미지 빌드
-echo "Docker 이미지 빌드 중..."
-docker build -t nextjs-app:latest .
+# Enable required MicroK8s addons
+echo "Enabling MicroK8s addons..."
+microk8s enable dns
+microk8s enable registry
+microk8s enable ingress
 
-# MicroK8s에 이미지 import (새로운 방법)
-echo "MicroK8s에 이미지 가져오기..."
-docker save nextjs-app:latest > nextjs-app.tar
-microk8s ctr images import nextjs-app.tar
-rm nextjs-app.tar
+# Apply Kubernetes manifests
+echo "Applying Kubernetes manifests..."
+microk8s kubectl apply -f deploy-nextjs.yaml
 
-# 이미지 확인
-echo "이미지 확인:"
-microk8s ctr images ls | grep nextjs-app
+# Wait for deployment to be ready
+echo "Waiting for deployment to be ready..."
+microk8s kubectl wait --for=condition=available --timeout=300s deployment/${APP_NAME} -n ${NAMESPACE}
 
-# Kubernetes 리소스 배포
-echo "Kubernetes 리소스 배포 중..."
-microk8s kubectl apply -f nextjs-deployment.yaml
-microk8s kubectl apply -f nextjs-service.yaml
-
-# 배포 상태 확인 (타임아웃 설정)
-echo "배포 상태 확인 중..."
-microk8s kubectl rollout status deployment/nextjs-app --timeout=300s
-
-# Pod 상태 확인
-echo "Pod 상태:"
-microk8s kubectl get pods -l app=nextjs-app
-
-# 서비스 정보 출력
-echo "서비스 정보:"
-microk8s kubectl get services nextjs-service
-
-echo "배포 완료!"
-echo ""
-echo "문제 해결 명령어:"
-echo "Pod 로그 확인: microk8s kubectl logs -l app=nextjs-app"
-echo "Pod 상세 정보: microk8s kubectl describe pods -l app=nextjs-app"
-echo "이벤트 확인: microk8s kubectl get events --sort-by=.metadata.creationTimestamp"
+# Get service information
+echo "Deployment complete! Service information:"
+microk8s kubectl get svc ${APP_NAME}-service -n ${NAMESPACE}
+echo "Ingress information:"
+microk8s kubectl get ingress ${APP_NAME}-ingress -n ${NAMESPACE}

@@ -1,22 +1,23 @@
-# Dockerfile
-FROM node:18-alpine AS builder
+# Use official Node.js LTS image
+FROM node:18-alpine
 
+# Set working directory
 WORKDIR /app
-COPY package.json package-lock.json ./
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
 RUN npm install
 
+# Copy application code
 COPY . .
+
+# Build Next.js application
 RUN npm run build
 
-# Production image
-FROM node:18-alpine AS runner
-WORKDIR /app
-
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./package.json
-
+# Expose port
 EXPOSE 3000
 
+# Start command
 CMD ["npm", "start"]
