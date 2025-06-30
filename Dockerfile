@@ -1,23 +1,45 @@
-# 1) 빌드 스테이지
-FROM node:20-alpine AS builder
+# Use the official Node.js 20 image as the base
+FROM node:20-alpine AS base
+
+# Install dependencies only when needed
+FROM base AS deps
 WORKDIR /app
-COPY package*.json ./
+
+# Install dependencies based on the lockfile
+COPY package.json package-lock.json* ./
 RUN npm ci
+
+# Rebuild the source code only when needed
+FROM base AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+
+# Build the Next.js app
 RUN npm run build
 
-# 2) 프로덕션 실행 스테이지
-FROM node:20-alpine AS runner
+# Production image
+FROM base AS runner
 WORKDIR /app
-ENV NODE_ENV=production
-# 불필요한 파일 제거
-RUN apk add --no-cache tini
-COPY --from=builder /app/next.config.mjs ./
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./package.json
 
-# 컨테이너 시작 시 tini를 통해 PID 1 문제 해결
-ENTRYPOINT ["/sbin/tini", "--"]
-CMD ["node_modules/.bin/next", "start", "-p", "3000"]
+# Set environment variables
+ENV NODE_ENV=production
+ENV PORT=3000
+
+# Create a non-root user for security
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+
+# Copy necessary files from builder
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+
+# Set user to non-root
+USER nextjs
+
+# Expose the port
+EXPOSE 3000
+
+# Start the Next.js app
+CMD ["node", "server.js"]
